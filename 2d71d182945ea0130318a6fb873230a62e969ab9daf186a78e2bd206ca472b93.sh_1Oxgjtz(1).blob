@@ -1,0 +1,297 @@
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
+using System.Reflection;
+using System.Reflection.Emit;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
+using An0n_Patches.Patches;
+using BepInEx;
+using BepInEx.Configuration;
+using BepInEx.Logging;
+using GameNetcodeStuff;
+using HarmonyLib;
+using TMPro;
+using Unity.Netcode;
+using UnityEngine;
+
+[assembly: CompilationRelaxations(8)]
+[assembly: RuntimeCompatibility(WrapNonExceptionThrows = true)]
+[assembly: Debuggable(DebuggableAttribute.DebuggingModes.Default | DebuggableAttribute.DebuggingModes.DisableOptimizations | DebuggableAttribute.DebuggingModes.IgnoreSymbolStoreSequencePoints | DebuggableAttribute.DebuggingModes.EnableEditAndContinue)]
+[assembly: AssemblyTitle("An0n_Patches")]
+[assembly: AssemblyDescription("")]
+[assembly: AssemblyConfiguration("")]
+[assembly: AssemblyCompany("")]
+[assembly: AssemblyProduct("An0n_Patches")]
+[assembly: AssemblyCopyright("Copyright ©  2023")]
+[assembly: AssemblyTrademark("")]
+[assembly: ComVisible(false)]
+[assembly: Guid("415f18a2-c213-4036-b3f0-7673c0a38c58")]
+[assembly: AssemblyFileVersion("1.0.0.0")]
+[assembly: TargetFramework(".NETFramework,Version=v4.6", FrameworkDisplayName = ".NET Framework 4.6")]
+[assembly: AssemblyVersion("1.0.0.0")]
+namespace An0n_Patches
+{
+	[BepInPlugin("com.an0n.patch", "An0n Patch", "1.0.4")]
+	public class An0n_Patch_Plugin : BaseUnityPlugin
+	{
+		private const string pluginGUID = "com.an0n.patch";
+
+		private const string pluginName = "An0n Patch";
+
+		private const string pluginVersion = "1.0.4";
+
+		public static ManualLogSource mls = Logger.CreateLogSource("com.an0n.patch");
+
+		private Harmony harmony = new Harmony("com.an0n.patch");
+
+		public static ConfigEntry<float> instantSprint;
+
+		public static ConfigEntry<float> slipperiness;
+
+		public static ConfigEntry<bool> instantJump;
+
+		public static ConfigEntry<bool> showHPSP;
+
+		private Harmony patcher;
+
+		private void Awake()
+		{
+			//IL_009f: Unknown result type (might be due to invalid IL or missing references)
+			//IL_00a9: Expected O, but got Unknown
+			instantJump = ((BaseUnityPlugin)this).Config.Bind<bool>("General", "instantJump", true, "Enable/disable instant jump. Removes the delay with jumping when enabled.");
+			instantSprint = ((BaseUnityPlugin)this).Config.Bind<float>("General", "instantSprint", 2.25f, "How fast to accelerate to sprint value of 2.25. 2.25 is the max, so it's instant acceleration.");
+			slipperiness = ((BaseUnityPlugin)this).Config.Bind<float>("General", "slipperiness", 10f, "The amount of slipperiness when running and changing direction. 10-15f is a good value for little to no slippery feeling.");
+			showHPSP = ((BaseUnityPlugin)this).Config.Bind<bool>("General", "showHealthStamina", true, "Show your health and sprint/stamina % on the HUD.");
+			mls.LogInfo((object)"[An0nPatch] Plugin Loaded");
+			patcher = new Harmony("com.an0n.patch");
+			patcher.PatchAll(typeof(PlayerControllerPatch));
+			patcher.PatchAll(typeof(HUDManagerPatch));
+		}
+	}
+}
+namespace An0n_Patches.Patches
+{
+	[HarmonyPatch]
+	internal class HUDManagerPatch : MonoBehaviour
+	{
+		public static TextMeshProUGUI HPSP_HUDText;
+
+		public static bool instantiating = true;
+
+		[HarmonyPatch(typeof(StartOfRound), "SceneManager_OnLoadComplete1")]
+		[HarmonyPostfix]
+		public static void CreateHPSP_HUD()
+		{
+			//IL_0065: Unknown result type (might be due to invalid IL or missing references)
+			//IL_0095: Unknown result type (might be due to invalid IL or missing references)
+			//IL_009a: Unknown result type (might be due to invalid IL or missing references)
+			//IL_00ce: Unknown result type (might be due to invalid IL or missing references)
+			if (instantiating)
+			{
+				GameObject val = GameObject.Find("Systems/UI/Canvas/IngamePlayerHUD/TopLeftCorner/WeightUI");
+				GameObject val2 = GameObject.Find("Systems/UI/Canvas/IngamePlayerHUD/TopLeftCorner");
+				GameObject val3 = Object.Instantiate<GameObject>(val, val2.transform);
+				((Object)val3).name = "HPSP";
+				GameObject gameObject = ((Component)val3.transform.GetChild(0)).gameObject;
+				RectTransform component = gameObject.GetComponent<RectTransform>();
+				component.anchoredPosition = new Vector2(-45f, 10f);
+				HPSP_HUDText = gameObject.GetComponent<TextMeshProUGUI>();
+				((TMP_Text)HPSP_HUDText).faceColor = Color32.op_Implicit(new Color(30f, 144f, 255f, 30f));
+				((TMP_Text)HPSP_HUDText).fontSize = 12f;
+				((TMP_Text)HPSP_HUDText).margin = new Vector4(0f, -36f, 100f, 0f);
+				((TMP_Text)HPSP_HUDText).alignment = (TextAlignmentOptions)260;
+				((TMP_Text)HPSP_HUDText).text = $"{100}\n\n\n{100}%";
+				instantiating = false;
+			}
+		}
+
+		[HarmonyPatch(typeof(GameNetworkManager), "Disconnect")]
+		[HarmonyPrefix]
+		public static void unInstantiate()
+		{
+			instantiating = true;
+		}
+
+		[HarmonyPatch(typeof(HUDManager), "Update")]
+		[HarmonyPostfix]
+		public static void Update()
+		{
+			if (!((Object)(object)GameNetworkManager.Instance.localPlayerController == (Object)null) && !instantiating)
+			{
+				float num = Mathf.RoundToInt((float)GameNetworkManager.Instance.localPlayerController.health);
+				float num2 = Mathf.RoundToInt((GameNetworkManager.Instance.localPlayerController.sprintMeter * 100f - 10f) / 90f * 100f);
+				if (num2 < 0f)
+				{
+					num2 = 0f;
+				}
+				if (An0n_Patch_Plugin.showHPSP.Value)
+				{
+					((TMP_Text)HPSP_HUDText).text = $"{num}\n\n\n\n{num2}%";
+				}
+			}
+		}
+	}
+	[HarmonyPatch(typeof(PlayerControllerB))]
+	internal class PlayerControllerPatch
+	{
+		private static PlayerControllerB __mainPlayer;
+
+		public static bool tempcrouch = false;
+
+		private static bool stillInitializing = true;
+
+		[HarmonyTranspiler]
+		[HarmonyPatch(/*Could not decode attribute arguments.*/)]
+		public static IEnumerable<CodeInstruction> RemoveJumpDelay(IEnumerable<CodeInstruction> instructions)
+		{
+			//IL_00a3: Unknown result type (might be due to invalid IL or missing references)
+			//IL_00ad: Expected O, but got Unknown
+			List<CodeInstruction> list = new List<CodeInstruction>(instructions);
+			if (!An0n_Patch_Plugin.instantJump.Value)
+			{
+				return list;
+			}
+			int num = 0;
+			for (int i = 0; i < list.Count; i++)
+			{
+				CodeInstruction val = list[i];
+				if (!(val.opcode != OpCodes.Newobj))
+				{
+					ConstructorInfo constructorInfo = val.operand as ConstructorInfo;
+					if (((constructorInfo != null) ? constructorInfo.DeclaringType : null) == typeof(WaitForSeconds))
+					{
+						Debug.Log((object)"[An0nPatch] patched Instant-Jump");
+						list[i] = new CodeInstruction(OpCodes.Ldnull, (object)null);
+						Debug.Log((object)(num + "-REM:" + ((object)list[i]).ToString()));
+						Debug.Log((object)(num - 1 + "REM:" + ((object)list[i - 1]).ToString()));
+						list.RemoveAt(i - 1);
+						i--;
+					}
+				}
+				num++;
+			}
+			return list;
+		}
+
+		[HarmonyTranspiler]
+		[HarmonyPatch(typeof(PlayerControllerB), "Update")]
+		public static IEnumerable<CodeInstruction> fixFloatyTurnAndRun(IEnumerable<CodeInstruction> instructions)
+		{
+			//IL_00d0: Unknown result type (might be due to invalid IL or missing references)
+			//IL_00da: Expected O, but got Unknown
+			//IL_01e4: Unknown result type (might be due to invalid IL or missing references)
+			//IL_01ee: Expected O, but got Unknown
+			List<CodeInstruction> list = instructions.ToList();
+			for (int i = 0; i < list.Count - 3; i++)
+			{
+				CodeInstruction val = list[i];
+				if (val.opcode == OpCodes.Ldc_R4 && (float)val.operand == 5f && CodeInstructionExtensions.LoadsField(list[i + 2], typeof(PlayerControllerB).GetField("carryWeight"), false) && list[i + 3].opcode == OpCodes.Ldc_R4 && (float)list[i + 3].operand == 1.5f)
+				{
+					Debug.Log((object)"[An0nPatch] patched slipperiness");
+					list[i] = new CodeInstruction(OpCodes.Ldc_R4, (object)An0n_Patch_Plugin.slipperiness.Value);
+				}
+			}
+			for (int j = 1; j < list.Count - 2; j++)
+			{
+				CodeInstruction val2 = list[j];
+				if (val2.opcode == OpCodes.Ldc_R4 && (float)val2.operand == 2.25f && list[j - 1].opcode == OpCodes.Ldfld && ((object)list[j - 1]).ToString() == "ldfld float GameNetcodeStuff.PlayerControllerB::sprintMultiplier" && list[j + 2].opcode == OpCodes.Ldc_R4 && (float)list[j + 2].operand == 1f)
+				{
+					Debug.Log((object)"[An0nPatch] patched instant sprint");
+					list[j + 2] = new CodeInstruction(OpCodes.Ldc_R4, (object)An0n_Patch_Plugin.instantSprint.Value);
+				}
+			}
+			return list;
+		}
+
+		public static bool canJump(RaycastHit ___hit)
+		{
+			//IL_0017: Unknown result type (might be due to invalid IL or missing references)
+			//IL_001c: Unknown result type (might be due to invalid IL or missing references)
+			PlayerControllerB localPlayerController = GameNetworkManager.Instance.localPlayerController;
+			return !Physics.Raycast(((Component)localPlayerController.gameplayCamera).transform.position, Vector3.up, ref ___hit, 0.72f, localPlayerController.playersManager.collidersAndRoomMask, (QueryTriggerInteraction)1);
+		}
+
+		[HarmonyPatch(typeof(PlayerControllerB), "Update")]
+		[HarmonyPostfix]
+		public static void ReadInput(PlayerControllerB __instance, RaycastHit ___hit)
+		{
+			//IL_00cb: Unknown result type (might be due to invalid IL or missing references)
+			//IL_00d0: Unknown result type (might be due to invalid IL or missing references)
+			try
+			{
+				if (!stillInitializing)
+				{
+					if (__mainPlayer == null)
+					{
+						__mainPlayer = StartOfRound.Instance.localPlayerController;
+					}
+					PlayerControllerB localPlayerController = GameNetworkManager.Instance.localPlayerController;
+					if ((!((NetworkBehaviour)__instance).IsOwner || !__instance.isPlayerControlled || (((NetworkBehaviour)__instance).IsServer && !__instance.isHostPlayerObject)) && !__instance.isTestingPlayer && !__mainPlayer.inTerminalMenu && !__mainPlayer.isTypingChat && !__mainPlayer.isPlayerDead && !__mainPlayer.quickMenuManager.isMenuOpen && !IngamePlayerSettings.Instance.playerInput.actions.FindAction("Crouch", true).IsPressed() && !Physics.Raycast(((Component)localPlayerController.gameplayCamera).transform.position, Vector3.up, ref ___hit, 0.72f, localPlayerController.playersManager.collidersAndRoomMask, (QueryTriggerInteraction)1))
+					{
+						localPlayerController.isCrouching = false;
+						localPlayerController.playerBodyAnimator.SetBool("crouching", false);
+					}
+				}
+			}
+			catch
+			{
+			}
+		}
+
+		[HarmonyPatch(typeof(PlayerControllerB), "Jump_performed")]
+		[HarmonyPrefix]
+		public static void Jump_performedA(PlayerControllerB __instance, RaycastHit ___hit)
+		{
+			//IL_0009: Unknown result type (might be due to invalid IL or missing references)
+			if (__instance.isCrouching && canJump(___hit))
+			{
+				__instance.isCrouching = false;
+				tempcrouch = true;
+			}
+		}
+
+		[HarmonyPatch(typeof(PlayerControllerB), "Jump_performed")]
+		[HarmonyPostfix]
+		public static void Jump_performedB(PlayerControllerB __instance)
+		{
+			if (tempcrouch)
+			{
+				__instance.isCrouching = true;
+				tempcrouch = false;
+			}
+		}
+
+		[HarmonyPatch(typeof(PlayerControllerB), "Crouch_performed")]
+		[HarmonyPrefix]
+		public static void Crouch_performed()
+		{
+		}
+
+		[HarmonyPatch(typeof(PlayerControllerB), "PlayerHitGroundEffects")]
+		[HarmonyPostfix]
+		public static void PlayerHitGroundEffects()
+		{
+			if (GameNetworkManager.Instance.localPlayerController.isCrouching)
+			{
+				GameNetworkManager.Instance.localPlayerController.playerBodyAnimator.SetTrigger("startCrouching");
+				GameNetworkManager.Instance.localPlayerController.playerBodyAnimator.SetBool("crouching", true);
+			}
+		}
+
+		[HarmonyPatch(typeof(GameNetworkManager), "Disconnect")]
+		[HarmonyPostfix]
+		public static void Uninitialize()
+		{
+			stillInitializing = true;
+		}
+
+		[HarmonyPatch(typeof(StartOfRound), "SceneManager_OnLoadComplete1")]
+		[HarmonyPostfix]
+		public static void Initialize()
+		{
+			stillInitializing = false;
+		}
+	}
+}
